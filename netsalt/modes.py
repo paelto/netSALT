@@ -1,6 +1,6 @@
 """Functions related to modes."""
 import logging
-import multiprocessing
+# import multiprocessing
 import warnings
 from functools import partial
 
@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import scipy as sc
 from tqdm import tqdm
+
+# def tqdm(x, *args, **kwargs):
+#     return x
 
 from .algorithm import (
     clean_duplicate_modes,
@@ -93,13 +96,13 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
     worker_scan = WorkerScan(graph, quality_method=quality_method)
     chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        qualities_list = list(
-            tqdm(
-                pool.imap(worker_scan, freqs, chunksize=chunksize),
-                total=len(freqs),
-            )
+    # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    qualities_list = list(
+        tqdm(
+            map(worker_scan, freqs),
+            total=len(freqs),
         )
+    )
 
     id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
     id_a = [a_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
@@ -128,13 +131,13 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     worker_modes = WorkerModes(
         estimated_modes, graph, search_radii=search_radii, quality_method=quality_method
     )
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        refined_modes = list(
-            tqdm(
-                pool.imap(worker_modes, range(len(estimated_modes))),
-                total=len(estimated_modes),
-            )
+    # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    refined_modes = list(
+        tqdm(
+            map(worker_modes, range(len(estimated_modes))),
+            total=len(estimated_modes),
         )
+    )
 
     if len(refined_modes) == 0:
         raise Exception("No mode found!")
@@ -532,13 +535,13 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     )
 
     chunksize = max(1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        precomp_results = list(
-            tqdm(
-                pool.imap(precomp, zip(threshold_modes, lasing_thresholds), chunksize=chunksize),
-                total=len(lasing_thresholds),
-            )
+    # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    precomp_results = list(
+        tqdm(
+            map(precomp, zip(threshold_modes, lasing_thresholds)),
+            total=len(lasing_thresholds),
         )
+    )
 
     input_data = []
     for mu in range(len(threshold_modes)):
@@ -552,22 +555,21 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
             )
 
     chunksize = max(1, int(0.1 * len(input_data) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        output_data = list(
-            tqdm(
-                pool.imap(
-                    partial(
-                        _compute_mode_competition_element,
-                        graph.graph["lengths"],
-                        graph.graph["params"],
-                        with_gamma=with_gamma,
-                    ),
-                    input_data,
-                    chunksize=chunksize,
+    # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+    output_data = list(
+        tqdm(
+            map(
+                partial(
+                    _compute_mode_competition_element,
+                    graph.graph["lengths"],
+                    graph.graph["params"],
+                    with_gamma=with_gamma,
                 ),
-                total=len(input_data),
-            )
+                input_data,
+            ),
+            total=len(input_data),
         )
+    )
 
     mode_competition_matrix = np.zeros(
         [len(threshold_modes), len(threshold_modes)], dtype=np.complex128
@@ -578,7 +580,7 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
             mode_competition_matrix[mu, nu] = output_data[index]
             index += 1
 
-    pool.close()
+    # pool.close()
 
     mode_competition_matrix_full = np.zeros(
         [
@@ -762,8 +764,8 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             D0s=n_modes * [D0s[d + 1]],
             quality_method=quality_method,
         )
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
+        # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        pumped_modes.append(list(tqdm(map(worker_modes, range(n_modes)), total=n_modes)))
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 L.info("Mode not be updated, consider changing the search parameters.")
@@ -829,12 +831,12 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
         args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            for mode_id, new_D0, new_mode_approx in pool.imap(
-                partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
-            ):
-                new_D0s[mode_id] = new_D0
-                new_modes_approx[mode_id] = new_mode_approx
+        # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        for mode_id, new_D0, new_mode_approx in map(
+            partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+        ):
+            new_D0s[mode_id] = new_D0
+            new_modes_approx[mode_id] = new_mode_approx
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
@@ -847,10 +849,10 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         )
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            new_modes_tmp[current_modes] = list(
-                tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
-            )
+        # with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+        new_modes_tmp[current_modes] = list(
+            tqdm(map(worker_modes, current_modes), total=len(current_modes))
+        )
 
         to_delete = []
         for i, mode_index in enumerate(current_modes):
