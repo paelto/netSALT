@@ -7,7 +7,7 @@ if sys.version_info < (2, 7):
 VERSION = "0.2.0"
 
 setup(
-    name="netsalt_paul",
+    name="netsalt",
     author="Alexis Arnaudon",
     author_email="alexis.arnaudon@epfl.ch",
     version=VERSION,
