@@ -28,7 +28,7 @@ from .quantum_graph import (
 from .utils import from_complex, get_scan_grid, to_complex
 
 warnings.filterwarnings("ignore")
-warnings.filterwarnings("error", category=np.ComplexWarning)
+warnings.filterwarnings("error")
 
 L = logging.getLogger(__name__)
 
