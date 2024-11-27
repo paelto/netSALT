@@ -7,10 +7,10 @@ from functools import partial
 import numpy as np
 import pandas as pd
 import scipy as sc
-from tqdm import tqdm
+# from tqdm import tqdm
 
-# def tqdm(x, *args, **kwargs):
-#     return x
+def tqdm(x, *args, **kwargs):
+    return x
 
 from .algorithm import (
     clean_duplicate_modes,
