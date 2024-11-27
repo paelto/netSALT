@@ -28,7 +28,7 @@ from .quantum_graph import (
 from .utils import from_complex, get_scan_grid, to_complex
 
 warnings.filterwarnings("ignore")
-warnings.filterwarnings("error")
+# warnings.filterwarnings("error")
 
 L = logging.getLogger(__name__)
 
@@ -801,6 +801,10 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1):
 
     L.debug("Mode %s at intensity %s", mode_id, new_D0)
     new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+
+    # if mode_id == 0:
+    #     print(f"Mode {mode_id} at intensity ${new_D0}")
+
     return mode_id, new_D0, new_modes_approx
 
 
@@ -860,11 +864,13 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
                 L.info("A mode could not be updated, consider modifying the search parameters.")
                 new_modes_tmp[mode_index] = new_modes[mode_index]
             elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
+                # print(f"Mode {mode_index} is vanishing, we remove it.")
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]
 
             elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
+                # print(f"Mode {mode_index} is too high, we remove it.")
                 to_delete.append(i)
 
         current_modes = np.delete(current_modes, to_delete)
