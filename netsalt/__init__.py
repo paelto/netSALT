@@ -17,6 +17,7 @@ from .modes import (
     mode_on_nodes,
     pump_trajectories,
     scan_frequencies,
+    mean_mode_on_edges,
 )
 from .physics import set_dielectric_constant, set_dispersion_relation
 from .quantum_graph import (
@@ -25,4 +26,4 @@ from .quantum_graph import (
     set_total_length,
     update_parameters,
 )
-from .utils import lorentzian
+from .utils import lorentzian, get_scan_grid
