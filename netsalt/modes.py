@@ -1,4 +1,6 @@
 """Functions related to modes."""
+
+import time
 import logging
 import multiprocessing
 import warnings
