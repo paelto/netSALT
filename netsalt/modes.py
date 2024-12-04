@@ -7,7 +7,14 @@ from functools import partial
 import numpy as np
 import pandas as pd
 import scipy as sc
-from tqdm import tqdm
+
+# from tqdm import tqdm
+
+
+# pylint: disable=wrong-import-position
+def tqdm(x, *args, **kwargs):
+    return x
+
 
 from .algorithm import (
     clean_duplicate_modes,
@@ -809,6 +816,22 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
     new_modes = modes_df["passive"].to_numpy()
 
+    analysis_data = {
+        "modes": [],
+        "execution_times": {
+            "part_a": 0,
+            "part_b": 0,
+            "part_c": 0,
+        }
+    }
+    for _ in range(len(modes_df)):
+        analysis_data["modes"].append(
+            {
+                "D0s": [],
+                "trajectory": [],
+            }
+        )
+
     threshold_lasing_modes = np.zeros([len(modes_df), 2])
     lasing_thresholds = np.inf * np.ones(len(modes_df))
     D0s = np.zeros(len(modes_df))
@@ -828,19 +851,37 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
 
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
-        args = ((mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes)
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            for mode_id, new_D0, new_mode_approx in pool.imap(
+        args = (
+            (mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes
+        )
+
+        # PART A (~20 seconds)
+        start_time = time.time()
+        n_workers = graph.graph["params"]["n_workers"]
+        if n_workers == 1:
+            for mode_id, new_D0, new_mode_approx in map(
                 partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
             ):
+                analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
+        else:
+            with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+                for mode_id, new_D0, new_mode_approx in pool.imap(
+                    partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+                ):
+                    analysis_data["modes"][mode_id]["D0s"].append(new_D0)
+                    new_D0s[mode_id] = new_D0
+                    new_modes_approx[mode_id] = new_mode_approx
+        analysis_data["execution_times"]["part_a"] += time.time() - start_time
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
+        # PART B (~100 seconds)
+        start_time = time.time()
         L.debug("Current search_stepsize: %s", graph.graph["params"]["search_stepsize"])
         worker_modes = WorkerModes(
             new_modes_approx, graph, D0s=new_D0s, quality_method=quality_method
@@ -851,9 +892,21 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
             new_modes_tmp[current_modes] = list(
                 tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
             )
+        else:
+            with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+                new_modes_tmp[current_modes] = list(
+                    tqdm(
+                        pool.imap(worker_modes, current_modes), total=len(current_modes)
+                    )
+                )
+        analysis_data["execution_times"]["part_b"] += time.time() - start_time
 
+        # PART C (~0 seconds)
+        start_time = time.time()
         to_delete = []
         for i, mode_index in enumerate(current_modes):
+            analysis_data["modes"][mode_index]["trajectory"].append(new_modes_tmp[mode_index])
+
             if new_modes_tmp[mode_index] is None:
                 L.info("A mode could not be updated, consider modifying the search parameters.")
                 new_modes_tmp[mode_index] = new_modes[mode_index]
@@ -864,6 +917,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
 
             elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
                 to_delete.append(i)
+        analysis_data["execution_times"]["part_c"] += time.time() - start_time
 
         current_modes = np.delete(current_modes, to_delete)
         D0s = new_D0s.copy()
@@ -882,7 +936,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
             modes_df.loc[mask[1:], "threshold_lasing_modes"] = 0.0
             modes_df.loc[mask[1:], "lasing_thresholds"] = np.inf
 
-    return modes_df.drop(columns=["th"])
+    return modes_df.drop(columns=["th"]), analysis_data
 
 
 def lasing_threshold_linear(mode, graph, D0):
