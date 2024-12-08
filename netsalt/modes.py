@@ -304,8 +304,9 @@ def mode_on_nodes(mode, graph):
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
+    # TODO
     if abs(min_eigenvalue[0]) > quality_thresh:
-        raise Exception(
+        print(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
             + " > "
@@ -313,6 +314,15 @@ def mode_on_nodes(mode, graph):
             + ", mode: "
             + str(mode)
         )
+    # if abs(min_eigenvalue[0]) > quality_thresh:
+    #     raise Exception(
+    #         "Not a mode, as quality is too high: "
+    #         + str(abs(min_eigenvalue[0]))
+    #         + " > "
+    #         + str(quality_thresh)
+    #         + ", mode: "
+    #         + str(mode)
+    #     )
 
     return node_solution[:, 0]
 
@@ -877,7 +887,7 @@ def _get_new_D0(arg, graph=None, D0_steps=0.1, D0_method="standard"):
         new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
         return mode_id, new_D0, new_modes_approx
 
-    if D0_method == "const_steps":
+    if D0_method == "const_steps" or D0_method == "const_steps_kill_modes":
         np.random.seed(42)
         mode_id, new_mode, D0 = arg
         new_D0 = D0 + D0_steps
@@ -889,7 +899,14 @@ def find_threshold_lasing_modes(
     modes_df, graph, quality_method="eigenvalue", D0_method="standard"
 ):
     # pylint:disable=too-many-statements
-    """Find the threshold lasing modes and associated lasing thresholds."""
+    """
+    Find the threshold lasing modes and associated lasing thresholds.
+    
+    `D0_method`:
+    - "standard"
+    - "const_steps"
+    - "const_steps_kill_modes"
+    """
     stepsize = graph.graph["params"]["search_stepsize"]
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
     new_modes = modes_df["passive"].to_numpy()
@@ -897,16 +914,17 @@ def find_threshold_lasing_modes(
     analysis_data = {
         "modes": [],
         "execution_times": {
-            "part_a": 0,
-            "part_b": 0,
-            "part_c": 0,
+            "part_a": [],
+            "part_b": [],
+            "part_a_normalized": [],
+            "part_b_normalized": [],
         },
     }
-    for _ in range(len(modes_df)):
+    for i in range(len(modes_df)):
         analysis_data["modes"].append(
             {
-                "D0s": [],
-                "trajectory": [],
+                "D0s": [0],
+                "trajectory": [from_complex(new_modes[i])],
             }
         )
 
@@ -917,6 +935,7 @@ def find_threshold_lasing_modes(
     stuck_modes_count = 0
     max_modes = len(current_modes)
     prev_n_modes = 0
+    iteration_count = 0
     while len(current_modes) > 0:
         if len(current_modes) == prev_n_modes:
             stuck_modes_count += 1
@@ -957,12 +976,17 @@ def find_threshold_lasing_modes(
                     analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                     new_D0s[mode_id] = new_D0
                     new_modes_approx[mode_id] = new_mode_approx
-        analysis_data["execution_times"]["part_a"] += time.time() - start_time
+        analysis_data["execution_times"]["part_a"].append(time.time() - start_time)
+        analysis_data["execution_times"]["part_a_normalized"].append(
+            (time.time() - start_time) / len(current_modes)
+        )
 
         # this is a trick to reduce the stepsizes as we are near the solution
         graph.graph["params"]["search_stepsize"] = (
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
+
+        print("Number of modes left: ", len(current_modes))
 
         # PART B (~100 seconds)
         start_time = time.time()
@@ -981,52 +1005,79 @@ def find_threshold_lasing_modes(
                         pool.imap(worker_modes, current_modes), total=len(current_modes)
                     )
                 )
-        analysis_data["execution_times"]["part_b"] += time.time() - start_time
+        analysis_data["execution_times"]["part_b"].append(time.time() - start_time)
+        analysis_data["execution_times"]["part_b_normalized"].append(
+            (time.time() - start_time) / len(current_modes)
+        )
 
         # PART C (~0 seconds)
-        start_time = time.time()
         to_delete = []
         for i, mode_index in enumerate(current_modes):
             analysis_data["modes"][mode_index]["trajectory"].append(
                 new_modes_tmp[mode_index]
             )
 
-            if D0_method == "const_steps":
-                if new_modes_tmp[mode_index][1] > 0:
-                    to_delete.append(i)
-
-                    _trajectory = analysis_data["modes"][mode_index]["trajectory"]
-                    _D0s = analysis_data["modes"][mode_index]["D0s"]
-
-                    final_mode = [
-                        (_trajectory[-1] + _trajectory[-2]) / 2,
-                        0,
-                    ]
-                    final_D0 = (_D0s[-1] + _D0s[-2]) / 2
-
-                    threshold_lasing_modes[mode_index] = final_mode
-                    lasing_thresholds[mode_index] = final_D0
-
-                    analysis_data["modes"][mode_index]["trajectory"].append(final_mode)
-                    analysis_data["modes"][mode_index]["D0s"].append(final_D0)
-
             if new_modes_tmp[mode_index] is None:
                 L.info(
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
-            elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
+
+            if D0_method == "const_steps" or D0_method == "const_steps_kill_modes":
+                if new_modes_tmp[mode_index][1] <= 0:
+                    to_delete.append(i)
+
+                    _trajectory = analysis_data["modes"][mode_index]["trajectory"]
+                    _D0s = analysis_data["modes"][mode_index]["D0s"]
+
+                    if len(_trajectory) == 1:
+                        final_mode = _trajectory[0]
+                        final_D0 = _D0s[0]
+                    else:
+                        a = _trajectory[-1][1] / (
+                            _trajectory[-1][1] - _trajectory[-2][1]
+                        )
+
+                        final_mode_real = _trajectory[-1][0] - a * (
+                            _trajectory[-1][0] - _trajectory[-2][0]
+                        )
+                        final_mode = np.array([final_mode_real, 0])
+                        final_D0 = _D0s[-1] - a * (_D0s[-1] - _D0s[-2])
+
+                        analysis_data["modes"][mode_index]["trajectory"].append(
+                            final_mode
+                        )
+                        analysis_data["modes"][mode_index]["D0s"].append(final_D0)
+
+                    threshold_lasing_modes[mode_index] = final_mode
+                    lasing_thresholds[mode_index] = final_D0
+
+                    continue
+
+            if D0_method == "const_steps_kill_modes":
+                trajectory = analysis_data["modes"][mode_index]["trajectory"]
+                last_mode_imag = trajectory[-1][1]
+                last_step_imag = trajectory[-1][1] - trajectory[-2][1]
+                number_of_iterations_left = graph.graph["params"]["D0_steps"] - iteration_count - 1
+                projected_final_mode_imag = last_mode_imag + number_of_iterations_left * last_step_imag
+
+                if projected_final_mode_imag > 0:
+                    to_delete.append(i)
+                    continue
+
+            if abs(new_modes_tmp[mode_index][1]) < 1e-6:
                 to_delete.append(i)
                 threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
                 lasing_thresholds[mode_index] = new_D0s[mode_index]
 
             elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
                 to_delete.append(i)
-        analysis_data["execution_times"]["part_c"] += time.time() - start_time
 
         current_modes = np.delete(current_modes, to_delete)
         D0s = new_D0s.copy()
         new_modes = new_modes_tmp.copy()
+
+        iteration_count += 1
 
     modes_df["threshold_lasing_modes"] = [
         to_complex(mode) for mode in threshold_lasing_modes
