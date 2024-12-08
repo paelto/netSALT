@@ -34,7 +34,7 @@ from .quantum_graph import (
 from .utils import from_complex, get_scan_grid, to_complex
 
 warnings.filterwarnings("ignore")
-warnings.filterwarnings("error", category=np.ComplexWarning)
+# warnings.filterwarnings("error", category=np.ComplexWarning)
 
 L = logging.getLogger(__name__)
 
@@ -79,7 +79,11 @@ class WorkerModes:
         if self.search_radii is not None:
             self.set_search_radii(mode)
         return refine_mode_brownian_ratchet(
-            mode, self.graph, self.params, seed=self.seed, quality_method=self.quality_method
+            mode,
+            self.graph,
+            self.params,
+            seed=self.seed,
+            quality_method=self.quality_method,
         )
 
 
@@ -92,7 +96,9 @@ class WorkerScan:
         np.random.seed(42)
 
     def __call__(self, freq):
-        return mode_quality(to_complex(freq), self.graph, quality_method=self.quality_method)
+        return mode_quality(
+            to_complex(freq), self.graph, quality_method=self.quality_method
+        )
 
 
 def scan_frequencies(graph, quality_method="eigenvalue"):
@@ -122,11 +128,15 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
 def _init_dataframe():
     """Initialize multicolumn dataframe."""
-    indexes = pd.MultiIndex(levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=float)
+    indexes = pd.MultiIndex(
+        levels=[[], []], codes=[[], []], names=["data", "D0"], dtype=float
+    )
     return pd.DataFrame(columns=indexes)
 
 
-def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, threshold_abs=1.0):
+def find_modes(
+    graph, qualities, quality_method="eigenvalue", min_distance=2, threshold_abs=1.0
+):
     """Find the modes from a scan."""
     ks, alphas = get_scan_grid(graph)
     estimated_modes = find_rough_modes_from_scan(
@@ -148,9 +158,13 @@ def find_modes(graph, qualities, quality_method="eigenvalue", min_distance=2, th
     if len(refined_modes) == 0:
         raise Exception("No mode found!")
 
-    refined_modes = [refined_mode for refined_mode in refined_modes if refined_mode is not None]
+    refined_modes = [
+        refined_mode for refined_mode in refined_modes if refined_mode is not None
+    ]
 
-    true_modes = clean_duplicate_modes(refined_modes, ks[1] - ks[0], alphas[1] - alphas[0])
+    true_modes = clean_duplicate_modes(
+        refined_modes, ks[1] - ks[0], alphas[1] - alphas[0]
+    )
     L.info("Found %s after refinements.", len(true_modes))
 
     # sort by decreasing Q*\Gamma value
@@ -212,8 +226,12 @@ def compute_z_matrix(graph):
 
     m = len(graph.edges)
     edge_ids = np.arange(m)
-    row = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids, 2 * edge_ids + 1]).flatten()
-    col = np.dstack([2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]).flatten()
+    row = np.dstack(
+        [2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids, 2 * edge_ids + 1]
+    ).flatten()
+    col = np.dstack(
+        [2 * edge_ids, 2 * edge_ids + 1, 2 * edge_ids + 1, 2 * edge_ids]
+    ).flatten()
     return sc.sparse.csc_matrix((data, (col, row)), shape=(2 * m, 2 * m))
 
 
@@ -230,7 +248,9 @@ def compute_overlapping_single_edges(passive_mode, graph):
     BT, Bout = construct_incidence_matrix(graph)
     Winv = construct_weight_matrix(graph, with_k=False)
 
-    inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
+    inner_norm = _graph_norm(
+        BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants
+    )
 
     pump_norm = np.zeros(len(graph.edges), dtype=np.complex128)
     for pump_edge, inner in enumerate(graph.graph["params"]["inner"]):
@@ -238,7 +258,9 @@ def compute_overlapping_single_edges(passive_mode, graph):
             mask = np.zeros(len(graph.edges))
             mask[pump_edge] = 1.0
             pump_mask = sc.sparse.diags(_convert_edges(mask))
-            pump_norm[pump_edge] = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
+            pump_norm[pump_edge] = _graph_norm(
+                BT, Bout, Winv, z_matrix, node_solution, pump_mask
+            )
 
     return np.real(pump_norm / inner_norm)
 
@@ -257,7 +279,9 @@ def compute_overlapping_factor(passive_mode, graph):
     Winv = construct_weight_matrix(graph, with_k=False)
 
     pump_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, pump_mask)
-    inner_norm = _graph_norm(BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants)
+    inner_norm = _graph_norm(
+        BT, Bout, Winv, z_matrix, node_solution, inner_dielectric_constants
+    )
 
     return pump_norm / inner_norm
 
@@ -268,7 +292,9 @@ def pump_linear(mode_0, graph, D0_0, D0_1):
     overlapping_factor = compute_overlapping_factor(mode_0, graph)
     freq = to_complex(mode_0)
     gamma_overlap = gamma(freq, graph.graph["params"]) * overlapping_factor
-    return from_complex(freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1)))
+    return from_complex(
+        freq * np.sqrt((1.0 + gamma_overlap * D0_0) / (1.0 + gamma_overlap * D0_1))
+    )
 
 
 def mode_on_nodes(mode, graph):
@@ -313,16 +339,22 @@ def mean_mode_on_edges(mode, graph):
         z = np.zeros([2, 2], dtype=np.complex128)
 
         if abs(np.real(k)) > 0:  # in case we deal with closed graph, we have 0 / 0
-            z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (length * (k + np.conj(k)))
+            z[0, 0] = (np.exp(length * (k + np.conj(k))) - 1.0) / (
+                length * (k + np.conj(k))
+            )
         else:
             z[0, 0] = 1.0
             z[1, 1] = 1.0
-        z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (length * (k - np.conj(k)))
+        z[0, 1] = (np.exp(length * k) - np.exp(length * np.conj(k))) / (
+            length * (k - np.conj(k))
+        )
         z[1, 0] = z[0, 1]
         z[1, 1] = z[0, 0]
 
         mean_edge_solution[ei] = np.abs(
-            edge_flux[2 * ei : 2 * ei + 2].T.dot(z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2])))
+            edge_flux[2 * ei : 2 * ei + 2].T.dot(
+                z.dot(np.conj(edge_flux[2 * ei : 2 * ei + 2]))
+            )
         )
 
     return mean_edge_solution
@@ -461,7 +493,9 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
 
             # A terms
             ik_tmp = 1.0j * (k_nu - np.conj(k_nu) + 2.0 * k_mu)
-            inner_matrix[0, 0] = inner_matrix[3, 3] = (np.exp(ik_tmp * length) - 1.0) / ik_tmp
+            inner_matrix[0, 0] = inner_matrix[3, 3] = (
+                np.exp(ik_tmp * length) - 1.0
+            ) / ik_tmp
 
             # B terms
             ik_tmp = 1.0j * (k_nu - np.conj(k_nu) - 2.0 * k_mu)
@@ -472,26 +506,35 @@ def _compute_mode_competition_element(lengths, params, data, with_gamma=True):
             # C terms
             ik_tmp = 1.0j * (k_nu + np.conj(k_nu) + 2.0 * k_mu)
             inner_matrix[1, 0] = inner_matrix[2, 3] = (
-                np.exp(1.0j * (k_nu + 2.0 * k_mu) * length) - np.exp(-1.0j * np.conj(k_nu) * length)
+                np.exp(1.0j * (k_nu + 2.0 * k_mu) * length)
+                - np.exp(-1.0j * np.conj(k_nu) * length)
             ) / ik_tmp
 
             # D terms
             ik_tmp = 1.0j * (k_nu + np.conj(k_nu) - 2.0 * k_mu)
             inner_matrix[1, 3] = inner_matrix[2, 0] = (
-                np.exp(1.0j * k_nu * length) - np.exp(1.0j * (2.0 * k_mu - np.conj(k_nu)) * length)
+                np.exp(1.0j * k_nu * length)
+                - np.exp(1.0j * (2.0 * k_mu - np.conj(k_nu)) * length)
             ) / ik_tmp
 
             # E terms
             ik_tmp = 1.0j * (k_nu - np.conj(k_nu))
-            inner_matrix[0, 1] = inner_matrix[0, 2] = inner_matrix[3, 1] = inner_matrix[3, 2] = (
+            inner_matrix[0, 1] = inner_matrix[0, 2] = inner_matrix[3, 1] = inner_matrix[
+                3, 2
+            ] = (
                 np.exp(1.0j * k_mu * length) * (np.exp(ik_tmp * length) - 1.0) / ik_tmp
             )
 
             # F terms
             ik_tmp = 1.0j * (k_nu + np.conj(k_nu))
-            inner_matrix[1, 1] = inner_matrix[1, 2] = inner_matrix[2, 1] = inner_matrix[2, 2] = (
+            inner_matrix[1, 1] = inner_matrix[1, 2] = inner_matrix[2, 1] = inner_matrix[
+                2, 2
+            ] = (
                 np.exp(1.0j * k_mu * length)
-                * (np.exp(1.0j * k_nu * length) - np.exp(-1.0j * np.conj(k_nu) * length))
+                * (
+                    np.exp(1.0j * k_nu * length)
+                    - np.exp(-1.0j * np.conj(k_nu) * length)
+                )
                 / ik_tmp
             )
 
@@ -540,11 +583,17 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
         _get_mask_matrices(graph.graph["params"])[1],
     )
 
-    chunksize = max(1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"]))
+    chunksize = max(
+        1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"])
+    )
     with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
         precomp_results = list(
             tqdm(
-                pool.imap(precomp, zip(threshold_modes, lasing_thresholds), chunksize=chunksize),
+                pool.imap(
+                    precomp,
+                    zip(threshold_modes, lasing_thresholds),
+                    chunksize=chunksize,
+                ),
                 total=len(lasing_thresholds),
             )
         )
@@ -625,7 +674,9 @@ def _find_next_lasing_mode(
             factor = (1.0 - sub_mode_comp_matrix_mu_inv.sum()) / (
                 1.0
                 - lasing_thresholds[mu]
-                * sub_mode_comp_matrix_mu_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
+                * sub_mode_comp_matrix_mu_inv.dot(
+                    1.0 / lasing_thresholds[lasing_mode_ids]
+                )
             )
             _int_thresh = lasing_thresholds[mu] * factor
             if (
@@ -664,7 +715,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
         mode_competition_matrix_inv = np.linalg.pinv(
             mode_competition_matrix[np.ix_(lasing_mode_ids, lasing_mode_ids)]
         )
-        slopes = mode_competition_matrix_inv.dot(1.0 / lasing_thresholds[lasing_mode_ids])
+        slopes = mode_competition_matrix_inv.dot(
+            1.0 / lasing_thresholds[lasing_mode_ids]
+        )
         shifts = mode_competition_matrix_inv.sum(1)
 
         # if we hit the max intensity, we add last points and stop
@@ -675,7 +728,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
             )
             break
 
-        modal_intensities.loc[lasing_mode_ids, pump_intensity] = slopes * pump_intensity - shifts
+        modal_intensities.loc[lasing_mode_ids, pump_intensity] = (
+            slopes * pump_intensity - shifts
+        )
 
         # 2) search for next lasing mode
         next_lasing_mode_id, next_lasing_threshold = _find_next_lasing_mode(
@@ -694,12 +749,16 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
             vanishing_pump_intensities[slopes > -1e-10] = np.inf
 
             if np.min(vanishing_pump_intensities) < next_lasing_threshold:
-                vanishing_mode_id = lasing_mode_ids[np.argmin(vanishing_pump_intensities)]
+                vanishing_mode_id = lasing_mode_ids[
+                    np.argmin(vanishing_pump_intensities)
+                ]
 
         # 4) prepare for the next step
         if vanishing_mode_id is None:
             if next_lasing_threshold < max_pump_intensity:
-                interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
+                interacting_lasing_thresholds[next_lasing_mode_id] = (
+                    next_lasing_threshold
+                )
                 pump_intensity = next_lasing_threshold
 
                 L.debug("New lasing mode id: %s", next_lasing_mode_id)
@@ -741,7 +800,9 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
     return modes_df
 
 
-def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eigenvalue"):
+def pump_trajectories(
+    modes_df, graph, return_approx=False, quality_method="eigenvalue"
+):
     """For a sequence of D0s, find the mode positions of the modes modes."""
 
     D0s = np.linspace(
@@ -763,7 +824,9 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
         )
         pumped_modes_approx.append(pumped_modes[-1].copy())
         for m in range(n_modes):
-            pumped_modes_approx[-1][m] = pump_linear(pumped_modes[-1][m], graph, D0s[d], D0s[d + 1])
+            pumped_modes_approx[-1][m] = pump_linear(
+                pumped_modes[-1][m], graph, D0s[d], D0s[d + 1]
+            )
 
         worker_modes = WorkerModes(
             pumped_modes_approx[-1],
@@ -772,7 +835,9 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
             quality_method=quality_method,
         )
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            pumped_modes.append(list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes)))
+            pumped_modes.append(
+                list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes))
+            )
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 L.info("Mode not be updated, consider changing the search parameters.")
@@ -794,24 +859,35 @@ def pump_trajectories(modes_df, graph, return_approx=False, quality_method="eige
     return modes_df
 
 
-def _get_new_D0(arg, graph=None, D0_steps=0.1):
+def _get_new_D0(arg, graph=None, D0_steps=0.1, D0_method="standard"):
     """Internal function for multiprocessing."""
-    np.random.seed(42)
-    mode_id, new_mode, D0 = arg
-    increment = lasing_threshold_linear(new_mode, graph, D0)
-    if increment > -D0_steps:
-        new_D0 = abs(D0 + increment)
-        new_D0 = min(new_D0, D0_steps + D0)
-    else:
-        L.debug("Intensity increment is negative, we set step to half max step.")
-        new_D0 = D0 + 0.5 * D0_steps
 
-    L.debug("Mode %s at intensity %s", mode_id, new_D0)
-    new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
-    return mode_id, new_D0, new_modes_approx
+    if D0_method == "standard":
+        np.random.seed(42)
+        mode_id, new_mode, D0 = arg
+        increment = lasing_threshold_linear(new_mode, graph, D0)
+        if increment > -D0_steps:
+            new_D0 = abs(D0 + increment)
+            new_D0 = min(new_D0, D0_steps + D0)
+        else:
+            L.debug("Intensity increment is negative, we set step to half max step.")
+            new_D0 = D0 + 0.5 * D0_steps
+
+        L.debug("Mode %s at intensity %s", mode_id, new_D0)
+        new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+        return mode_id, new_D0, new_modes_approx
+
+    if D0_method == "const_steps":
+        np.random.seed(42)
+        mode_id, new_mode, D0 = arg
+        new_D0 = D0 + D0_steps
+        new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+        return mode_id, new_D0, new_modes_approx
 
 
-def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
+def find_threshold_lasing_modes(
+    modes_df, graph, quality_method="eigenvalue", D0_method="standard"
+):
     # pylint:disable=too-many-statements
     """Find the threshold lasing modes and associated lasing thresholds."""
     stepsize = graph.graph["params"]["search_stepsize"]
@@ -824,7 +900,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
             "part_a": 0,
             "part_b": 0,
             "part_c": 0,
-        }
+        },
     }
     for _ in range(len(modes_df)):
         analysis_data["modes"].append(
@@ -862,7 +938,10 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         n_workers = graph.graph["params"]["n_workers"]
         if n_workers == 1:
             for mode_id, new_D0, new_mode_approx in map(
-                partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+                partial(
+                    _get_new_D0, graph=graph, D0_steps=D0_steps, D0_method=D0_method
+                ),
+                args,
             ):
                 analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                 new_D0s[mode_id] = new_D0
@@ -870,7 +949,10 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 for mode_id, new_D0, new_mode_approx in pool.imap(
-                    partial(_get_new_D0, graph=graph, D0_steps=D0_steps), args
+                    partial(
+                        _get_new_D0, graph=graph, D0_steps=D0_steps, D0_method=D0_method
+                    ),
+                    args,
                 ):
                     analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                     new_D0s[mode_id] = new_D0
@@ -890,10 +972,8 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         )
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            new_modes_tmp[current_modes] = list(
-                tqdm(pool.imap(worker_modes, current_modes), total=len(current_modes))
-            )
+        if n_workers == 1:
+            new_modes_tmp[current_modes] = list(tqdm(map(worker_modes, current_modes)))
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 new_modes_tmp[current_modes] = list(
@@ -907,10 +987,33 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         start_time = time.time()
         to_delete = []
         for i, mode_index in enumerate(current_modes):
-            analysis_data["modes"][mode_index]["trajectory"].append(new_modes_tmp[mode_index])
+            analysis_data["modes"][mode_index]["trajectory"].append(
+                new_modes_tmp[mode_index]
+            )
+
+            if D0_method == "const_steps":
+                if new_modes_tmp[mode_index][1] > 0:
+                    to_delete.append(i)
+
+                    _trajectory = analysis_data["modes"][mode_index]["trajectory"]
+                    _D0s = analysis_data["modes"][mode_index]["D0s"]
+
+                    final_mode = [
+                        (_trajectory[-1] + _trajectory[-2]) / 2,
+                        0,
+                    ]
+                    final_D0 = (_D0s[-1] + _D0s[-2]) / 2
+
+                    threshold_lasing_modes[mode_index] = final_mode
+                    lasing_thresholds[mode_index] = final_D0
+
+                    analysis_data["modes"][mode_index]["trajectory"].append(final_mode)
+                    analysis_data["modes"][mode_index]["D0s"].append(final_D0)
 
             if new_modes_tmp[mode_index] is None:
-                L.info("A mode could not be updated, consider modifying the search parameters.")
+                L.info(
+                    "A mode could not be updated, consider modifying the search parameters."
+                )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
             elif abs(new_modes_tmp[mode_index][1]) < 1e-6:
                 to_delete.append(i)
@@ -925,7 +1028,9 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
         D0s = new_D0s.copy()
         new_modes = new_modes_tmp.copy()
 
-    modes_df["threshold_lasing_modes"] = [to_complex(mode) for mode in threshold_lasing_modes]
+    modes_df["threshold_lasing_modes"] = [
+        to_complex(mode) for mode in threshold_lasing_modes
+    ]
     modes_df["lasing_thresholds"] = lasing_thresholds
 
     # we remove duplicated threshold lasing modes (we keep first appearance)
@@ -954,7 +1059,9 @@ def lasing_threshold_linear(mode, graph, D0):
 
 def get_node_transfer(k, graph, input_flow):
     """Compute node transfer from a given input flow."""
-    return sc.sparse.linalg.spsolve(construct_laplacian(k, graph), graph.graph["ks"] * input_flow)
+    return sc.sparse.linalg.spsolve(
+        construct_laplacian(k, graph), graph.graph["ks"] * input_flow
+    )
 
 
 def get_edge_transfer(k, graph, input_flow):
