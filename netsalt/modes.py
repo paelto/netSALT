@@ -102,8 +102,6 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
     n_workers = graph.graph["params"]["n_workers"]
 
-    print("Scanning frequencies", n_workers)
-
     if n_workers == 1:
         qualities_list = list(map(worker_scan, freqs))
     else:
