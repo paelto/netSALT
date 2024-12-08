@@ -8,13 +8,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 import scipy as sc
-
-# from tqdm import tqdm
-
-# pylint: disable=wrong-import-position
-def tqdm(x, *args, **kwargs):
-    return x
-
+from tqdm import tqdm
 
 from .algorithm import (
     clean_duplicate_modes,
@@ -109,12 +103,7 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
     n_workers = graph.graph["params"]["n_workers"]
 
     if n_workers == 1:
-        qualities_list = list(
-            tqdm(
-                map(worker_scan, freqs),
-                total=len(freqs),
-            )
-        )
+        qualities_list = list(map(worker_scan, freqs))
     else:
         chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
@@ -159,12 +148,7 @@ def find_modes(
 
     n_workers = graph.graph["params"]["n_workers"]
     if n_workers == 1:
-        refined_modes = list(
-            tqdm(
-                map(worker_modes, range(len(estimated_modes))),
-                total=len(estimated_modes),
-            )
-        )
+        refined_modes = list(map(worker_modes, range(len(estimated_modes))))
     else:
         with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
             refined_modes = list(
@@ -451,7 +435,7 @@ def compute_IPRs(graph, modes_df, df_entry="passive"):
     """Compute IPR of all modes on the graph."""
 
     IPRs = []
-    for index in tqdm(modes_df.index, total=len(modes_df)):
+    for index in modes_df.index:
         IPR = compute_mode_IPR(graph, modes_df, index, df_entry)
         IPRs.append(IPR)
 
@@ -471,10 +455,7 @@ def gamma_q_value(graph, modes_df, index, df_entry="passive"):
 
 def compute_gamma_q_values(graph, modes_df, df_entry="passive"):
     """Compute gamma * Q factor for all modes on the graph."""
-    return [
-        gamma_q_value(graph, modes_df, index, df_entry)
-        for index in tqdm(modes_df.index, total=len(modes_df))
-    ]
+    return [gamma_q_value(graph, modes_df, index, df_entry) for index in modes_df.index]
 
 
 def _precomputations_mode_competition(graph, pump_mask, mode_threshold):
@@ -604,12 +585,7 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
 
     n_workers = graph.graph["params"]["n_workers"]
     if n_workers == 1:
-        precomp_results = list(
-            tqdm(
-                map(precomp, zip(threshold_modes, lasing_thresholds)),
-                total=len(lasing_thresholds),
-            )
-        )
+        precomp_results = list(map(precomp, zip(threshold_modes, lasing_thresholds)))
     else:
         chunksize = max(
             1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"])
@@ -640,18 +616,15 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     n_workers = graph.graph["params"]["n_workers"]
     if n_workers == 1:
         output_data = list(
-            tqdm(
-                map(
-                    partial(
-                        _compute_mode_competition_element,
-                        graph.graph["lengths"],
-                        graph.graph["params"],
-                        with_gamma=with_gamma,
-                    ),
-                    input_data,
+            map(
+                partial(
+                    _compute_mode_competition_element,
+                    graph.graph["lengths"],
+                    graph.graph["params"],
+                    with_gamma=with_gamma,
                 ),
-                total=len(input_data),
-            )
+                input_data,
+            ),
         )
     else:
         chunksize = max(
@@ -884,9 +857,7 @@ def pump_trajectories(
 
         n_workers = graph.graph["params"]["n_workers"]
         if n_workers == 1:
-            pumped_modes.append(
-                list(tqdm(map(worker_modes, range(n_modes)), total=n_modes))
-            )
+            pumped_modes.append(list(map(worker_modes, range(n_modes))))
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 pumped_modes.append(
@@ -993,9 +964,7 @@ def find_threshold_lasing_modes(modes_df, graph, quality_method="eigenvalue"):
 
         n_workers = graph.graph["params"]["n_workers"]
         if n_workers == 1:
-            new_modes_tmp[current_modes] = list(
-                tqdm(map(worker_modes, current_modes), total=len(current_modes))
-            )
+            new_modes_tmp[current_modes] = list(map(worker_modes, current_modes))
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 new_modes_tmp[current_modes] = list(
