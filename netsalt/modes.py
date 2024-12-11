@@ -869,39 +869,53 @@ def pump_trajectories(
     return modes_df
 
 
-def _get_new_D0(arg, graph=None, D0_steps=0.1, D0_method="standard"):
+def _get_new_D0(arg, graph=None, D0_steps=0.1, new_D0_method="standard"):
     """Internal function for multiprocessing."""
 
-    if D0_method == "standard":
+    mode_id, new_mode, D0, mode_history = arg
+
+    if new_D0_method == "standard":
         np.random.seed(42)
-        mode_id, new_mode, D0 = arg
         increment = lasing_threshold_linear(new_mode, graph, D0)
-        if increment > -D0_steps:
-            new_D0 = abs(D0 + increment)
-            new_D0 = min(new_D0, D0_steps + D0)
-        else:
-            L.debug("Intensity increment is negative, we set step to half max step.")
-            new_D0 = D0 + 0.5 * D0_steps
+        new_D0 = D0 + min(increment, D0_steps)
 
         L.debug("Mode %s at intensity %s", mode_id, new_D0)
         new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
         return mode_id, new_D0, new_modes_approx
 
-    if D0_method == "const_steps" or D0_method == "const_steps_kill_modes":
-        np.random.seed(42)
-        mode_id, new_mode, D0 = arg
-        new_D0 = D0 + D0_steps
+    elif new_D0_method == "linear_approx":
+        trajectory, D0s = mode_history["trajectory"], mode_history["D0s"]
+
+        if trajectory[-1][1] < 0:
+            a = trajectory[-1][1] / (trajectory[-1][1] - trajectory[-2][1])
+            new_D0 = D0s[-1] - a * (D0s[-1] - D0s[-2])
+        else:
+            new_D0 = D0 + D0_steps
+
+        new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
+        return mode_id, new_D0, new_modes_approx
+
+    elif new_D0_method == "first_guess":
+        increment = lasing_threshold_linear(new_mode, graph, D0)
+
+        if increment <= D0_steps:
+            new_D0 = D0 + increment
+            mode_history["state"] = "last_iteration"
+
+        else:
+            new_D0 = D0 + D0_steps
+
         new_modes_approx = pump_linear(new_mode, graph, D0, new_D0)
         return mode_id, new_D0, new_modes_approx
 
 
 def find_threshold_lasing_modes(
-    modes_df, graph, quality_method="eigenvalue", D0_method="standard"
+    modes_df, graph, quality_method="eigenvalue", config=None
 ):
     # pylint:disable=too-many-statements
     """
     Find the threshold lasing modes and associated lasing thresholds.
-    
+
     `D0_method`:
     - "standard"
     - "const_steps"
@@ -911,8 +925,16 @@ def find_threshold_lasing_modes(
     D0_steps = graph.graph["params"]["D0_max"] / graph.graph["params"]["D0_steps"]
     new_modes = modes_df["passive"].to_numpy()
 
+    # Set default config
+    if config == None:
+        config = {}
+    if "new_D0_method" not in config:
+        config["new_D0_method"] = "standard"
+    if "kill_modes" not in config:
+        config["kill_modes"] = False
+
+    # Initialize analysis data
     analysis_data = {
-        "modes": [],
         "execution_times": {
             "part_a": [],
             "part_b": [],
@@ -920,11 +942,15 @@ def find_threshold_lasing_modes(
             "part_b_normalized": [],
         },
     }
+
+    # Initialize mode histories
+    mode_histories = []
     for i in range(len(modes_df)):
-        analysis_data["modes"].append(
+        mode_histories.append(
             {
                 "D0s": [0],
                 "trajectory": [from_complex(new_modes[i])],
+                "state": "idle",
             }
         )
 
@@ -949,7 +975,8 @@ def find_threshold_lasing_modes(
         new_D0s = np.zeros(len(modes_df))
         new_modes_approx = np.empty([len(new_modes), 2])
         args = (
-            (mode_id, new_modes[mode_id], D0s[mode_id]) for mode_id in current_modes
+            (mode_id, new_modes[mode_id], D0s[mode_id], mode_histories[mode_id])
+            for mode_id in current_modes
         )
 
         # PART A (~20 seconds)
@@ -958,22 +985,26 @@ def find_threshold_lasing_modes(
         if n_workers == 1:
             for mode_id, new_D0, new_mode_approx in map(
                 partial(
-                    _get_new_D0, graph=graph, D0_steps=D0_steps, D0_method=D0_method
+                    _get_new_D0,
+                    graph=graph,
+                    D0_steps=D0_steps,
+                    new_D0_method=config["new_D0_method"],
                 ),
                 args,
             ):
-                analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                 new_D0s[mode_id] = new_D0
                 new_modes_approx[mode_id] = new_mode_approx
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 for mode_id, new_D0, new_mode_approx in pool.imap(
                     partial(
-                        _get_new_D0, graph=graph, D0_steps=D0_steps, D0_method=D0_method
+                        _get_new_D0,
+                        graph=graph,
+                        D0_steps=D0_steps,
+                        new_D0_method=config["new_D0_method"],
                     ),
                     args,
                 ):
-                    analysis_data["modes"][mode_id]["D0s"].append(new_D0)
                     new_D0s[mode_id] = new_D0
                     new_modes_approx[mode_id] = new_mode_approx
         analysis_data["execution_times"]["part_a"].append(time.time() - start_time)
@@ -1013,64 +1044,67 @@ def find_threshold_lasing_modes(
         # PART C (~0 seconds)
         to_delete = []
         for i, mode_index in enumerate(current_modes):
-            analysis_data["modes"][mode_index]["trajectory"].append(
-                new_modes_tmp[mode_index]
-            )
-
+            # Catch the case where the mode could not be updated
             if new_modes_tmp[mode_index] is None:
                 L.info(
                     "A mode could not be updated, consider modifying the search parameters."
                 )
                 new_modes_tmp[mode_index] = new_modes[mode_index]
 
-            if D0_method == "const_steps" or D0_method == "const_steps_kill_modes":
-                if new_modes_tmp[mode_index][1] <= 0:
-                    to_delete.append(i)
+            # Read new mode
+            new_mode = new_modes_tmp[mode_index]
+            new_D0 = new_D0s[mode_index]
+            mode_histories[mode_index]["trajectory"].append(new_mode)
+            mode_histories[mode_index]["D0s"].append(new_D0)
 
-                    _trajectory = analysis_data["modes"][mode_index]["trajectory"]
-                    _D0s = analysis_data["modes"][mode_index]["D0s"]
+            # Kill unprospective modes
+            if config["kill_modes"]:
+                trajectory = mode_histories[mode_index]["trajectory"]
 
-                    if len(_trajectory) == 1:
-                        final_mode = _trajectory[0]
-                        final_D0 = _D0s[0]
-                    else:
-                        a = _trajectory[-1][1] / (
-                            _trajectory[-1][1] - _trajectory[-2][1]
-                        )
-
-                        final_mode_real = _trajectory[-1][0] - a * (
-                            _trajectory[-1][0] - _trajectory[-2][0]
-                        )
-                        final_mode = np.array([final_mode_real, 0])
-                        final_D0 = _D0s[-1] - a * (_D0s[-1] - _D0s[-2])
-
-                        analysis_data["modes"][mode_index]["trajectory"].append(
-                            final_mode
-                        )
-                        analysis_data["modes"][mode_index]["D0s"].append(final_D0)
-
-                    threshold_lasing_modes[mode_index] = final_mode
-                    lasing_thresholds[mode_index] = final_D0
-
-                    continue
-
-            if D0_method == "const_steps_kill_modes":
-                trajectory = analysis_data["modes"][mode_index]["trajectory"]
                 last_mode_imag = trajectory[-1][1]
                 last_step_imag = trajectory[-1][1] - trajectory[-2][1]
-                number_of_iterations_left = graph.graph["params"]["D0_steps"] - iteration_count - 1
-                projected_final_mode_imag = last_mode_imag + number_of_iterations_left * last_step_imag
+
+                number_of_iterations_left = (
+                    graph.graph["params"]["D0_steps"] - iteration_count - 1
+                )
+                projected_final_mode_imag = (
+                    last_mode_imag + number_of_iterations_left * last_step_imag
+                )
 
                 if projected_final_mode_imag > 0:
                     to_delete.append(i)
                     continue
 
-            if abs(new_modes_tmp[mode_index][1]) < 1e-6:
-                to_delete.append(i)
-                threshold_lasing_modes[mode_index] = new_modes_tmp[mode_index]
-                lasing_thresholds[mode_index] = new_D0s[mode_index]
+            # Standard method
+            if config["new_D0_method"] == "standard":
+                if abs(new_mode[1]) < 1e-6:
+                    to_delete.append(i)
+                    threshold_lasing_modes[mode_index] = new_mode
+                    lasing_thresholds[mode_index] = new_D0
+                    continue
 
-            elif new_D0s[mode_index] > graph.graph["params"]["D0_max"]:
+            # Linear approximation method
+            elif config["new_D0_method"] == "linear_approx":
+                if mode_histories[mode_index]["state"] == "last_iteration":
+                    to_delete.append(i)
+                    threshold_lasing_modes[mode_index] = new_mode
+                    lasing_thresholds[mode_index] = new_D0
+                    continue
+
+                elif new_mode[1] <= 0:
+                    mode_histories[mode_index]["state"] = "last_iteration"
+                    continue
+
+            # First guess method
+            elif config["new_D0_method"] == "first_guess":
+                if mode_histories[mode_index]["state"] == "last_iteration":
+                    to_delete.append(i)
+                    threshold_lasing_modes[mode_index] = new_mode
+                    lasing_thresholds[mode_index] = new_D0
+                    continue
+
+            # Kill modes
+            if new_D0 > graph.graph["params"]["D0_max"]:
                 to_delete.append(i)
 
         current_modes = np.delete(current_modes, to_delete)
@@ -1093,6 +1127,19 @@ def find_threshold_lasing_modes(
         if len(mask) > 1:
             modes_df.loc[mask[1:], "threshold_lasing_modes"] = 0.0
             modes_df.loc[mask[1:], "lasing_thresholds"] = np.inf
+
+    # Update analysis data
+    analysis_data["execution_times"]["part_a_total"] = np.sum(
+        analysis_data["execution_times"]["part_a"]
+    )
+    analysis_data["execution_times"]["part_b_total"] = np.sum(
+        analysis_data["execution_times"]["part_b"]
+    )
+    analysis_data["execution_times"]["overall"] = (
+        analysis_data["execution_times"]["part_a_total"]
+        + analysis_data["execution_times"]["part_b_total"]
+    )
+    analysis_data["modes"] = mode_histories
 
     return modes_df.drop(columns=["th"]), analysis_data
 
