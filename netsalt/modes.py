@@ -108,13 +108,17 @@ def scan_frequencies(graph, quality_method="eigenvalue"):
 
     worker_scan = WorkerScan(graph, quality_method=quality_method)
     chunksize = max(1, int(0.1 * len(freqs) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        qualities_list = list(
-            tqdm(
-                pool.imap(worker_scan, freqs, chunksize=chunksize),
-                total=len(freqs),
+    n_workers = graph.graph["params"]["n_workers"]
+    if n_workers == 1:
+        qualities_list = [worker_scan(freq) for freq in tqdm(freqs)]
+    else:
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            qualities_list = list(
+                tqdm(
+                    pool.imap(worker_scan, freqs, chunksize=chunksize),
+                    total=len(freqs),
+                )
             )
-        )
 
     id_k = [k_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
     id_a = [a_i for k_i in range(len(ks)) for a_i in range(len(alphas))]
@@ -147,13 +151,17 @@ def find_modes(
     worker_modes = WorkerModes(
         estimated_modes, graph, search_radii=search_radii, quality_method=quality_method
     )
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        refined_modes = list(
-            tqdm(
-                pool.imap(worker_modes, range(len(estimated_modes))),
-                total=len(estimated_modes),
+    n_workers = graph.graph["params"]["n_workers"]
+    if n_workers == 1:
+        refined_modes = [worker_modes(mode_id) for mode_id in tqdm(range(len(estimated_modes)))]
+    else:
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            refined_modes = list(
+                tqdm(
+                    pool.imap(worker_modes, range(len(estimated_modes))),
+                    total=len(estimated_modes),
+                )
             )
-        )
 
     if len(refined_modes) == 0:
         raise Exception("No mode found!")
@@ -596,17 +604,21 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
     chunksize = max(
         1, int(0.1 * len(lasing_thresholds) / graph.graph["params"]["n_workers"])
     )
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        precomp_results = list(
-            tqdm(
-                pool.imap(
-                    precomp,
-                    zip(threshold_modes, lasing_thresholds),
-                    chunksize=chunksize,
-                ),
-                total=len(lasing_thresholds),
+    n_workers = graph.graph["params"]["n_workers"]
+    if n_workers == 1:
+        precomp_results = [precomp((threshold_modes[i], lasing_thresholds[i])) for i in range(len(lasing_thresholds))]
+    else:
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            precomp_results = list(
+                tqdm(
+                    pool.imap(
+                        precomp,
+                        zip(threshold_modes, lasing_thresholds),
+                        chunksize=chunksize,
+                    ),
+                    total=len(lasing_thresholds),
+                )
             )
-        )
 
     input_data = []
     for mu in range(len(threshold_modes)):
@@ -620,22 +632,28 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
             )
 
     chunksize = max(1, int(0.1 * len(input_data) / graph.graph["params"]["n_workers"]))
-    with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-        output_data = list(
-            tqdm(
-                pool.imap(
-                    partial(
-                        _compute_mode_competition_element,
-                        graph.graph["lengths"],
-                        graph.graph["params"],
-                        with_gamma=with_gamma,
+    n_workers = graph.graph["params"]["n_workers"]
+    if n_workers == 1:
+        output_data = [_compute_mode_competition_element(graph.graph["lengths"], graph.graph["params"], data, with_gamma) for data in input_data]
+    else:
+        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+            output_data = list(
+                tqdm(
+                    pool.imap(
+                        partial(
+                            _compute_mode_competition_element,
+                            graph.graph["lengths"],
+                            graph.graph["params"],
+                            with_gamma=with_gamma,
+                        ),
+                        input_data,
+                        chunksize=chunksize,
                     ),
-                    input_data,
-                    chunksize=chunksize,
-                ),
-                total=len(input_data),
+                    total=len(input_data),
+                )
             )
-        )
+
+            pool.close()
 
     mode_competition_matrix = np.zeros(
         [len(threshold_modes), len(threshold_modes)], dtype=np.complex128
@@ -645,8 +663,6 @@ def compute_mode_competition_matrix(graph, modes_df, with_gamma=True):
         for nu in range(len(threshold_modes)):
             mode_competition_matrix[mu, nu] = output_data[index]
             index += 1
-
-    pool.close()
 
     mode_competition_matrix_full = np.zeros(
         [
@@ -844,10 +860,14 @@ def pump_trajectories(
             D0s=n_modes * [D0s[d + 1]],
             quality_method=quality_method,
         )
-        with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-            pumped_modes.append(
-                list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes))
-            )
+        n_workers = graph.graph["params"]["n_workers"]
+        if n_workers == 1:
+            pumped_modes.append([worker_modes(i) for i in range(n_modes)])
+        else:
+            with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
+                pumped_modes.append(
+                    list(tqdm(pool.imap(worker_modes, range(n_modes)), total=n_modes))
+                )
         for i, mode in enumerate(pumped_modes[-1]):
             if mode is None:
                 L.info("Mode not be updated, consider changing the search parameters.")
@@ -1017,7 +1037,7 @@ def find_threshold_lasing_modes(
             stepsize * np.mean(abs(new_D0s[new_D0s > 0] - D0s[new_D0s > 0])) / D0_steps
         )
 
-        print("Number of modes left: ", len(current_modes))
+        # print("Number of modes left: ", len(current_modes))
 
         # PART B (~100 seconds)
         start_time = time.time()
@@ -1057,24 +1077,6 @@ def find_threshold_lasing_modes(
             mode_histories[mode_index]["trajectory"].append(new_mode)
             mode_histories[mode_index]["D0s"].append(new_D0)
 
-            # Kill unprospective modes
-            if config["kill_modes"]:
-                trajectory = mode_histories[mode_index]["trajectory"]
-
-                last_mode_imag = trajectory[-1][1]
-                last_step_imag = trajectory[-1][1] - trajectory[-2][1]
-
-                number_of_iterations_left = (
-                    graph.graph["params"]["D0_steps"] - iteration_count - 1
-                )
-                projected_final_mode_imag = (
-                    last_mode_imag + number_of_iterations_left * last_step_imag
-                )
-
-                if projected_final_mode_imag > 0:
-                    to_delete.append(i)
-                    continue
-
             # Standard method
             if config["new_D0_method"] == "standard":
                 if abs(new_mode[1]) < 1e-6:
@@ -1101,6 +1103,24 @@ def find_threshold_lasing_modes(
                     to_delete.append(i)
                     threshold_lasing_modes[mode_index] = new_mode
                     lasing_thresholds[mode_index] = new_D0
+                    continue
+
+            # Kill unprospective modes early
+            if config["kill_modes"]:
+                trajectory = mode_histories[mode_index]["trajectory"]
+
+                last_mode_imag = trajectory[-1][1]
+                last_step_imag = trajectory[-1][1] - trajectory[-2][1]
+
+                number_of_iterations_left = (
+                    graph.graph["params"]["D0_steps"] - iteration_count - 1
+                )
+                projected_final_mode_imag = (
+                    last_mode_imag + number_of_iterations_left * last_step_imag
+                )
+
+                if projected_final_mode_imag > 0:
+                    to_delete.append(i)
                     continue
 
             # Kill modes
