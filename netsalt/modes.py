@@ -312,7 +312,7 @@ def mode_on_nodes(mode, graph):
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
             + " > "
-            + str(2 * quality_thresh)
+            + str(10 * quality_thresh)
             + ", mode: "
             + str(mode)
         )
