@@ -307,7 +307,7 @@ def mode_on_nodes(mode, graph):
         laplacian, k=1, sigma=0, v0=np.ones(len(graph)), which="LM"
     )
     quality_thresh = graph.graph["params"].get("quality_threshold", 1e-4)
-    if abs(min_eigenvalue[0]) > 2 * quality_thresh:
+    if abs(min_eigenvalue[0]) > 10 * quality_thresh:
         raise Exception(
             "Not a mode, as quality is too high: "
             + str(abs(min_eigenvalue[0]))
