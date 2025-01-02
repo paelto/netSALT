@@ -1013,14 +1013,16 @@ def find_threshold_lasing_modes(
                 mode_histories[mode_id]["state"] = new_mode_state
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
-                for mode_id, new_D0, new_mode_approx, new_mode_state in pool.imap(
-                    partial(
-                        _get_new_D0,
-                        graph=graph,
-                        D0_steps=D0_steps,
-                        new_D0_method=config["new_D0_method"],
-                    ),
-                    args,
+                for mode_id, new_D0, new_mode_approx, new_mode_state in tqdm(
+                    pool.imap(
+                        partial(
+                            _get_new_D0,
+                            graph=graph,
+                            D0_steps=D0_steps,
+                            new_D0_method=config["new_D0_method"],
+                        ),
+                        args,
+                    )
                 ):
                     new_D0s[mode_id] = new_D0
                     new_modes_approx[mode_id] = new_mode_approx
@@ -1038,7 +1040,7 @@ def find_threshold_lasing_modes(
         new_modes_tmp = np.zeros([len(modes_df), 2])
 
         if n_workers == 1:
-            new_modes_tmp[current_modes] = list(tqdm(map(worker_modes, current_modes)))
+            new_modes_tmp[current_modes] = list(map(worker_modes, current_modes))
         else:
             with multiprocessing.Pool(graph.graph["params"]["n_workers"]) as pool:
                 new_modes_tmp[current_modes] = list(
