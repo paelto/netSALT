@@ -724,7 +724,6 @@ def compute_modal_intensities(modes_df, max_pump_intensity, mode_competition_mat
     lasing_mode_ids = [next_lasing_mode_id]
     interacting_lasing_thresholds = np.inf * np.ones(len(modes_df))
     interacting_lasing_thresholds[next_lasing_mode_id] = next_lasing_threshold
-    logging.info("Lasing thresholds: %s", lasing_thresholds)
     modal_intensities.loc[next_lasing_mode_id, next_lasing_threshold] = 0
 
     pump_intensity = next_lasing_threshold
