@@ -957,7 +957,7 @@ def find_threshold_lasing_modes(
     if config == None:
         config = {}
     if "new_D0_method" not in config:
-        config["new_D0_method"] = "standard"
+        config["new_D0_method"] = "linear_approx"
     if "kill_modes" not in config:
         config["kill_modes"] = True
 
