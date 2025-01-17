@@ -13,6 +13,7 @@ from .modes import (
     compute_mode_competition_matrix,
     find_modes,
     find_threshold_lasing_modes,
+    FindThresholdLasingModesException,
     lasing_threshold_linear,
     mode_on_nodes,
     pump_trajectories,
