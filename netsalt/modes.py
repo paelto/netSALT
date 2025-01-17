@@ -1159,8 +1159,6 @@ def find_threshold_lasing_modes(
         return modes_df.drop(columns=["th"])
 
     except Exception as e:
-        _traceback = traceback.format_exc()
-
         raise FindThresholdLasingModesException(mode_histories) from e
 
 
