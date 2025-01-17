@@ -4,7 +4,6 @@ import logging
 import multiprocessing
 import warnings
 from functools import partial
-import traceback
 
 import numpy as np
 import pandas as pd
@@ -937,10 +936,9 @@ class FindThresholdLasingModesException(Exception):
     An exception raised when the threshold lasing modes could not be found.
     """
 
-    def __init__(self, _traceback, mode_histories):
+    def __init__(self, mode_histories):
         super().__init__("Treshold lasing modes could not be found.")
         self.mode_histories = mode_histories
-        self.traceback = _traceback
 
 
 def find_threshold_lasing_modes(
@@ -1163,7 +1161,7 @@ def find_threshold_lasing_modes(
     except Exception as e:
         _traceback = traceback.format_exc()
 
-        raise FindThresholdLasingModesException(_traceback, mode_histories) from e
+        raise FindThresholdLasingModesException(mode_histories) from e
 
 
 def lasing_threshold_linear(mode, graph, D0):
